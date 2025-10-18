@@ -1,4 +1,4 @@
-# University Management API
+# MS4 Classification - University Management API
 
 A FastAPI-based REST API for managing university resources including persons, addresses, books, and courses. This project demonstrates modern Python web development using FastAPI, Pydantic v2, and type hints.
 
@@ -50,8 +50,8 @@ A FastAPI-based REST API for managing university resources including persons, ad
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd university-management-api
+git clone https://github.com/cloudteam4153/ms4-classification.git
+cd ms4-classification
 ```
 
 2. Create a virtual environment:
