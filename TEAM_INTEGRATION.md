@@ -41,12 +41,11 @@ for cls in classifications:
     # Combine for unified inbox display
 ```
 
-**2. Classify New Messages (Requires JWT)**
+**2. Classify New Messages**
 ```python
 # When user wants to classify messages
 response = requests.post(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
-    headers={"Authorization": f"Bearer {jwt_token}"},
     json={
         "message_ids": ["msg-uuid-1", "msg-uuid-2", "msg-uuid-3"]
     }
@@ -147,8 +146,8 @@ https://ms4-classification-uq2tkhfvqa-uc.a.run.app
 - **Params**: `label`, `min_priority`, `max_priority`, `limit`
 - **Returns**: Array of classification objects
 
-**POST /classifications** 🔒
-- **Auth**: Required (JWT Bearer token)
+**POST /classifications**
+- **Auth**: Optional
 - **Body**: `{"message_ids": ["uuid1", "uuid2"]}`
 - **Returns**: Classification results
 
@@ -172,10 +171,9 @@ https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 curl https://ms4-classification-uq2tkhfvqa-uc.a.run.app/health
 ```
 
-### Test Classification (Need JWT from Sanjay)
+### Test Classification
 ```bash
 curl -X POST https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message_ids": ["some-message-uuid"]}'
 ```
@@ -227,15 +225,11 @@ A: Yes! Stored in Cloud SQL database permanently.
 A: You can re-classify it. New classification will be created (we keep history).
 
 **Q: Do I need authentication?**  
-A: Only for POST (creating classifications). GET requests are public.
+A: No! All endpoints are public. OAuth/JWT is handled by Sanjay's service.
 
 ---
 
 ## 🐛 Troubleshooting
-
-**401 Unauthorized**
-- Make sure you're sending: `Authorization: Bearer <token>`
-- Get JWT token from Sanjay's OAuth flow
 
 **404 Message Not Found**
 - Check that message_id exists in Sanjay's service

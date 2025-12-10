@@ -10,6 +10,7 @@ from utils.config import config
 
 # Security scheme
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)  # Optional security (no error if missing)
 
 
 class JWTValidator:
@@ -99,7 +100,7 @@ def get_current_user(
 
 
 def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(optional_security)
 ) -> Optional[dict]:
     """
     Optional authentication - returns user if token is valid, None otherwise
@@ -115,7 +116,16 @@ def get_optional_user(
         return None
     
     try:
-        return get_current_user(credentials)
+        token = credentials.credentials
+        payload = jwt_validator.decode_token(token)
+        
+        # Add user_id to payload if not present
+        if "user_id" not in payload:
+            user_id = jwt_validator.get_user_id(payload)
+            if user_id:
+                payload["user_id"] = user_id
+        
+        return payload
     except HTTPException:
         return None
 

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Environment variables for deployment
+# Copy this file to deploy_env.sh and fill in your values
+# deploy_env.sh is gitignored and won't be committed
+
+export DB_PASSWORD="your-database-password-here"
+export OPENAI_API_KEY="your-openai-api-key-here"
+
+# Optional overrides
+export PROJECT_ID="sodium-hue-479204-p3"
+export REGION="us-central1"
+export DB_USER="postgres"
+export DB_NAME="classifications_db"
+export INTEGRATIONS_SERVICE_URL="https://integrations-svc-ms2-ft4pa23xra-uc.a.run.app"
+

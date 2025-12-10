@@ -3,6 +3,7 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import httpx
+import asyncio
 from datetime import datetime
 
 from models.message import MessageRead, ChannelType
@@ -118,26 +119,25 @@ class IntegrationsClient:
             List of MessageRead objects
         """
         messages = []
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         
-        # Fetch messages in parallel
+        # Fetch messages in parallel using asyncio.gather
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            tasks = []
-            for msg_id in message_ids:
-                headers = {}
-                if token:
-                    headers["Authorization"] = f"Bearer {token}"
-                
-                tasks.append(
-                    client.get(
-                        f"{self.base_url}/messages/{msg_id}",
-                        headers=headers
-                    )
-                )
+            tasks = [
+                client.get(f"{self.base_url}/messages/{msg_id}", headers=headers)
+                for msg_id in message_ids
+            ]
             
             # Wait for all requests
-            responses = await httpx.AsyncClient().gather(*tasks)
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
             
             for response in responses:
+                if isinstance(response, Exception):
+                    print(f"Error fetching message: {response}")
+                    continue
+                    
                 if response.status_code == 200:
                     try:
                         data = response.json()
@@ -154,8 +154,13 @@ class IntegrationsClient:
         
         # Parse datetime fields
         received_at = data.get("received_at")
-        if isinstance(received_at, str):
+        if not received_at and data.get("internal_date"):
+            # Convert milliseconds timestamp to datetime
+            received_at = datetime.fromtimestamp(data.get("internal_date") / 1000)
+        elif isinstance(received_at, str):
             received_at = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+        elif not received_at:
+            received_at = datetime.utcnow()
         
         created_at = data.get("created_at")
         if isinstance(created_at, str):
@@ -170,14 +175,19 @@ class IntegrationsClient:
         except ValueError:
             channel = ChannelType.GMAIL
         
+        # Map Sanjay's field names to our model
+        sender = data.get("sender") or data.get("from_address", "")
+        snippet = data.get("snippet") or data.get("body", "")
+        account_id = data.get("account_id") or data.get("user_id")
+        
         return MessageRead(
             msg_id=msg_id,
-            account_id=data.get("account_id"),
+            account_id=account_id,
             external_id=data.get("external_id", ""),
             channel=channel,
-            sender=data.get("sender", ""),
+            sender=sender,
             subject=data.get("subject"),
-            snippet=data.get("snippet", ""),
+            snippet=snippet,
             received_at=received_at,
             raw_ref=data.get("raw_ref"),
             priority=data.get("priority"),

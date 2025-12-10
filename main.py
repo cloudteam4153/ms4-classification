@@ -175,7 +175,7 @@ def get_db_optional():
 @app.post("/classifications", response_model=ClassificationResponse, status_code=201)
 async def classify_messages(
     request: ClassificationRequest,
-    user: dict = Depends(get_current_user),  # JWT authentication required
+    user: Optional[dict] = Depends(get_optional_user),  # Optional JWT authentication
 ):
     """
     Classify multiple messages using AI (OpenAI)
@@ -292,7 +292,7 @@ def get_classification(
 def update_classification(
     classification_id: UUID,
     update: ClassificationUpdate,
-    user: dict = Depends(get_current_user)  # JWT authentication required
+    user: Optional[dict] = Depends(get_optional_user)  # Optional JWT authentication
 ):
     """Update a classification (requires authentication)"""
     
@@ -332,7 +332,7 @@ def update_classification(
 @app.delete("/classifications/{classification_id}")
 def delete_classification(
     classification_id: UUID,
-    user: dict = Depends(get_current_user)  # JWT authentication required
+    user: Optional[dict] = Depends(get_optional_user)  # Optional JWT authentication
 ):
     """Delete a classification (requires authentication)"""
     

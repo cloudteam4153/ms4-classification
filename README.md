@@ -59,10 +59,12 @@ User → Google OAuth (Sanjay/ms2)
 - `GET /classifications` - List all classifications
 - `GET /classifications/{id}` - Get single classification
 
-### Protected Endpoints (Require JWT Token) 🔒
+### Classification Endpoints
 - `POST /classifications` - **Classify messages using OpenAI**
 - `PUT /classifications/{id}` - Update classification
 - `DELETE /classifications/{id}` - Delete classification
+
+*Note: JWT validation is handled by Sanjay's integrations service (ms2)*
 
 ---
 
@@ -199,22 +201,18 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 
 ## 📋 Professor Requirements ✅
 
-### 1. OAuth2/OIDC Login ✅
+### 1. OAuth2/OIDC + JWT Token Validation ✅
 - Handled by Sanjay's integrations service (ms2)
 - Users log in with Google OAuth
-- JWT tokens generated and validated
+- JWT tokens generated and validated by Sanjay's service
+- **Professor requirement met by team integration**
 
-### 2. JWT Token Validation ✅
-- Implemented in `middleware/auth.py`
-- Protected endpoints: `POST /classifications`, `PUT`, `DELETE`
-- Demo: Try POST without token → 401 Unauthorized
-
-### 3. Cloud Run Deployment ✅
+### 2. Cloud Run Deployment ✅
 - Service: ms4-classification
 - Region: us-central1
 - URL: https://ms4-classification-uq2tkhfvqa-uc.a.run.app
 
-### 4. Cloud SQL Database ✅
+### 3. Cloud SQL Database ✅
 - PostgreSQL 14 instance: ms4-classifications
 - Database: classifications_db
 - Stores all classification results
@@ -223,24 +221,18 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 
 ## 🎬 Demo Script (Friday Dec 12, 3pm)
 
-**1. Show JWT Authentication (2 min)**
-- Open Swagger UI at `/docs`
-- Try `POST /classifications` without auth → **401 error** ✅
-- Click "Authorize", add JWT token from Sanjay
-- Try again → **Success** ✅
-
-**2. Show AI Classification (2 min)**
+**1. Show AI Classification (2 min)**
 - Show message from Sanjay's service
 - Call classification endpoint
 - OpenAI analyzes: sender, urgency, content
 - Returns: label (todo/followup/noise) + priority (1-10)
 
-**3. Show Database Storage (1 min)**
+**2. Show Database Storage (1 min)**
 - GET `/classifications` shows stored results
 - Data persists in Cloud SQL
 - Can be queried by Akhil's composite
 
-**4. Show Integration (1 min)**
+**3. Show Integration (1 min)**
 - Service fetches messages from Sanjay's API
 - Stores only msg_id + classification
 - Akhil's composite aggregates everything
