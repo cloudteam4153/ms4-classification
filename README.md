@@ -1,259 +1,295 @@
-# Prioritizer Service - AI-Powered Message Classification
+# Classification Microservice (ms4)
 
-A FastAPI-based microservice for AI-powered message classification and task generation as part of a unified inbox assistant. This service classifies Gmail and Slack messages into actionable tasks and generates daily briefs.
+**Live Service:** https://ms4-classification-uq2tkhfvqa-uc.a.run.app  
+**API Docs:** https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs  
+**Team Member:** Jonathan Lederer
 
-## 🚀 Quick Start
-
-### Prerequisites
-- Python 3.8+ 
-- pip (Python package manager)
-
-### Installation & Running
-
-1. **Clone and navigate to the project:**
-```bash
-git clone <your-repo-url>
-cd ms4-classification
-```
-
-2. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
-3. **Start the service:**
-```bash
-python main.py
-```
-
-4. **Access the service:**
-- **API Base URL:** `http://localhost:8001`
-- **Interactive Documentation:** `http://localhost:8001/docs` (Swagger UI)
-- **Alternative Docs:** `http://localhost:8001/redoc` (ReDoc)
-
-## 📋 What This Service Does
-
-This microservice is part of a **unified inbox assistant** that helps users manage their Gmail and Slack messages by:
-
-1. **Classifying Messages**: Uses AI to categorize messages as `todo`, `followup`, or `noise`
-2. **Assigning Priorities**: Gives each message a priority score from 1-10 based on content analysis
-3. **Generating Tasks**: Creates actionable tasks from classified messages
-4. **Creating Daily Briefs**: Summarizes high-priority items for users
-
-## 🔧 Features
-
-- **AI Classification**: Smart message analysis using AI prompts (currently mocked)
-- **Priority Scoring**: Intelligent priority assignment (1-10 scale)
-- **Task Generation**: Automatic task creation from classified messages
-- **Daily Briefs**: Personalized summaries of important items
-- **Health Monitoring**: Built-in health check endpoints
-- **Interactive API Docs**: Auto-generated Swagger/OpenAPI documentation
-
-## 📚 API Documentation
-
-### View All Endpoints
-Visit `http://localhost:8001/docs` to see the interactive API documentation where you can:
-- View all available endpoints
-- Test API calls directly in the browser
-- See request/response schemas
-- Download OpenAPI specification
-
-### Key Endpoints
-
-#### Health Check
-- `GET /health` - Service health status
-
-#### Message Classification
-- `POST /classifications` - Classify messages using AI
-- `GET /classifications` - List classifications with filtering
-
-#### Task Management
-- `POST /tasks/generate` - Generate tasks from classifications
-- `GET /tasks` - List tasks with filtering
-- `POST /tasks` - Create manual tasks
-- `PUT /tasks/{task_id}` - Update tasks
-- `DELETE /tasks/{task_id}` - Delete tasks
-
-#### Daily Briefs
-- `POST /briefs` - Generate daily brief for user
-- `GET /briefs` - List briefs with filtering
-
-#### Testing (Sample Data)
-- `GET /messages` - View sample messages for testing
-
-## 🗄️ Database Schema
-
-The service uses a simplified schema that matches your team's MySQL database:
-
-```sql
--- Core tables
-users(user_id, email, created_at)
-accounts(account_id, user_id, provider ENUM('gmail','slack'), access_token_hash, meta)
-messages(msg_id, account_id, external_id, channel, sender, subject, snippet, received_at, raw_ref, priority)
-classifications(cls_id, msg_id, label ENUM('todo','followup','noise'), priority, created_at)
-tasks(task_id, user_id, source_msg_id, title, status ENUM('open','done'), due_at, priority, description, created_at)
-```
-
-## 🧪 Testing the Service
-
-### 1. Check Service Health
-```bash
-curl http://localhost:8001/health
-```
-
-### 2. View Sample Data
-```bash
-curl http://localhost:8001/messages
-```
-
-### 3. Test Classification
-```bash
-# Get a message ID first
-MESSAGE_ID=$(curl -s http://localhost:8001/messages | jq -r '.[0].msg_id')
-
-# Classify the message
-curl -X POST "http://localhost:8001/classifications" \
-  -H "Content-Type: application/json" \
-  -d "{\"message_ids\": [\"$MESSAGE_ID\"]}"
-```
-
-### 4. Generate Tasks
-```bash
-# Get a classification ID
-CLASS_ID=$(curl -s http://localhost:8001/classifications | jq -r '.[0].cls_id')
-
-# Generate tasks
-curl -X POST "http://localhost:8001/tasks/generate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "classification_ids": ["'$CLASS_ID'"],
-    "user_id": "123e4567-e89b-12d3-a456-426614174000"
-  }'
-```
-
-### 5. View Generated Tasks
-```bash
-curl http://localhost:8001/tasks
-```
-
-## 🔄 Service Workflow
-
-1. **Ingestor Service** → Sends Gmail/Slack messages to this service
-2. **This Service** → Classifies messages and generates tasks
-3. **Actions Service** → Receives tasks for CRUD operations
-4. **Desktop App** → Displays daily briefs and task management UI
-
-## ⚙️ Configuration
-
-### Port Configuration
-Default port is 8001. Change it with:
-```bash
-export FASTAPIPORT=3001
-python main.py
-```
-
-### Environment Variables
-- `FASTAPIPORT`: Server port (default: 8001)
-
-## 🏗️ Architecture
-
-This service is designed as a microservice in a larger system:
-
-- **Input**: Messages from Gmail/Slack (via Ingestor Service)
-- **Processing**: AI classification and task generation
-- **Output**: Classified messages and generated tasks
-- **Storage**: In-memory for development (will connect to MySQL in production)
-
-## 🛠️ Development
-
-### Tech Stack
-- **FastAPI**: Modern Python web framework
-- **Pydantic v2**: Data validation and serialization
-- **Uvicorn**: ASGI server
-- **Python 3.8+**: With type hints
-
-### Project Structure
-```
-ms4-classification/
-├── main.py                 # FastAPI application
-├── models/                 # Pydantic data models
-│   ├── message.py         # Message model
-│   ├── classification.py  # Classification model
-│   ├── task.py           # Task model
-│   └── brief.py          # Brief model
-├── services/              # Business logic
-│   ├── ai_classifier.py  # AI classification service
-│   └── task_generator.py # Task generation service
-└── requirements.txt       # Dependencies
-```
-
-## 🤝 Team Integration
-
-This service integrates with your team's microservices:
-
-- **Ingestor Service (Sanjay)**: Receives messages from Gmail/Slack
-- **Actions Service (Beverly)**: Manages task CRUD operations
-- **Database Service (David)**: Provides MySQL database
-- **Desktop App (Akhil)**: User interface
-
-## 📝 Example API Calls
-
-### Classify a Message
-```bash
-curl -X POST "http://localhost:8001/classifications" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message_ids": ["550e8400-e29b-41d4-a716-446655440000"]
-  }'
-```
-
-### Generate Daily Brief
-```bash
-curl -X POST "http://localhost:8001/briefs" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "123e4567-e89b-12d3-a456-426614174000",
-    "date": "2025-01-15"
-  }'
-```
-
-### Generate Tasks
-```bash
-curl -X POST "http://localhost:8001/tasks/generate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "classification_ids": ["71fc7860-02b4-4dfe-8e92-65d430933ccc"],
-    "user_id": "123e4567-e89b-12d3-a456-426614174000"
-  }'
-```
-
-## 🚨 Troubleshooting
-
-### Port Already in Use
-```bash
-# Kill any existing processes on port 8001
-lsof -ti:8001 | xargs kill -9
-python main.py
-```
-
-### Service Not Starting
-1. Check Python version: `python --version` (needs 3.8+)
-2. Install dependencies: `pip install -r requirements.txt`
-3. Check for syntax errors: `python -m py_compile main.py`
-
-### API Not Responding
-1. Check if service is running: `curl http://localhost:8001/health`
-2. Check logs in terminal where you started the service
-3. Verify port 8001 is not blocked by firewall
-
-## 📖 Next Steps
-
-1. **Test the API**: Use the interactive docs at `http://localhost:8001/docs`
-2. **Integrate with team**: Connect with other microservices
-3. **Add real AI**: Replace mock classification with actual OpenAI API
-4. **Database integration**: Connect to MySQL for persistent storage
-5. **Production deployment**: Deploy to your cloud platform
+AI-powered message classification microservice using OpenAI GPT for a unified inbox assistant. Deployed on Google Cloud Run with Cloud SQL database.
 
 ---
 
-**Ready to start?** Run `python main.py` and visit `http://localhost:8001/docs` to explore the API! 🚀
+## 🎯 What This Service Does
+
+Classifies email and Slack messages into three categories using AI:
+- **`todo`** - Messages requiring action or response
+- **`followup`** - Messages needing follow-up or reminders  
+- **`noise`** - Newsletters, promotions, automated messages
+
+Each classification includes a priority score (1-10) based on:
+- Urgency indicators (URGENT, ASAP, deadline)
+- Sender importance (CEO, manager vs automated)
+- Action requirements (need to, must, please)
+- Time sensitivity (today, tomorrow, EOD)
+
+---
+
+## 🏗️ Architecture & Integration
+
+### How It Fits in the System
+
+```
+User → Google OAuth (Sanjay/ms2) 
+     → JWT Token
+     → Composite Service (Akhil/ms1)
+     → Classification Service (YOU ARE HERE)
+     → Returns classifications
+     → Composite aggregates with messages + tasks
+     → Web UI (Beverly) displays unified inbox
+```
+
+### Service Dependencies
+
+**Integrates WITH:**
+- **Integrations Service (Sanjay/ms2)**: Fetches messages via `/messages` API
+- **Composite Service (Akhil/ms1)**: Receives classification requests, returns results
+
+**Used BY:**
+- **Tasks Service (David/ms3)**: Monitors classifications to auto-create tasks
+- **Composite Service (Akhil/ms1)**: Aggregates classifications with messages for dashboard
+
+---
+
+## 🔌 API Endpoints
+
+### Public Endpoints
+- `GET /` - Service info and status
+- `GET /health` - Health check
+- `GET /messages` - List messages (proxies to Sanjay's service)
+- `GET /messages/{id}` - Get single message
+- `GET /classifications` - List all classifications
+- `GET /classifications/{id}` - Get single classification
+
+### Protected Endpoints (Require JWT Token) 🔒
+- `POST /classifications` - **Classify messages using OpenAI**
+- `PUT /classifications/{id}` - Update classification
+- `DELETE /classifications/{id}` - Delete classification
+
+---
+
+## 🚀 Quick Integration Guide
+
+### For Akhil (Composite Service)
+
+**Call classification endpoint:**
+```python
+import requests
+
+# Get classifications for dashboard
+response = requests.get(
+    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
+    params={"limit": 50}
+)
+classifications = response.json()
+
+# Match with messages using msg_id
+for classification in classifications:
+    msg_id = classification["msg_id"]
+    # Fetch full message from Sanjay's service using msg_id
+```
+
+**Trigger new classification:**
+```python
+# User wants to classify new messages
+response = requests.post(
+    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
+    headers={"Authorization": f"Bearer {jwt_token}"},
+    json={"message_ids": [msg_id1, msg_id2, msg_id3]}
+)
+```
+
+### For David (Tasks Service)
+
+**Monitor for new classifications:**
+```python
+# Periodically check for new TODO classifications
+response = requests.get(
+    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
+    params={"label": "todo", "min_priority": 7}
+)
+
+# Auto-create tasks from high-priority TODOs
+for cls in response.json():
+    if not task_exists(cls["msg_id"]):
+        create_task(cls["msg_id"], cls["priority"])
+```
+
+### For Sanjay (Integrations Service)
+
+**Your service fetches messages from:**
+```
+GET https://integrations-svc-ms2-ft4pa23xra-uc.a.run.app/messages
+```
+
+No changes needed on your end - we pull from you!
+
+---
+
+## 🔧 Technical Details
+
+### Tech Stack
+- **Framework**: FastAPI 0.116.1
+- **AI Model**: OpenAI GPT-4o-mini
+- **Database**: Google Cloud SQL (PostgreSQL 14)
+- **Deployment**: Google Cloud Run
+- **Authentication**: JWT token validation
+- **Language**: Python 3.11
+
+### Database Schema
+
+```sql
+CREATE TABLE classifications (
+    cls_id UUID PRIMARY KEY,
+    msg_id UUID NOT NULL,  -- Foreign key to messages in Sanjay's DB
+    label VARCHAR(20) NOT NULL CHECK (label IN ('todo', 'followup', 'noise')),
+    priority INTEGER NOT NULL CHECK (priority >= 1 AND priority <= 10),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_msg_id (msg_id),
+    INDEX idx_label (label),
+    INDEX idx_priority (priority)
+);
+```
+
+### Response Format
+
+**Classification Object:**
+```json
+{
+  "cls_id": "550e8400-e29b-41d4-a716-446655440000",
+  "msg_id": "123e4567-e89b-12d3-a456-426614174000",
+  "label": "todo",
+  "priority": 8,
+  "created_at": "2025-12-10T21:00:00Z"
+}
+```
+
+---
+
+## 🧪 Testing the Service
+
+### 1. Health Check
+```bash
+curl https://ms4-classification-uq2tkhfvqa-uc.a.run.app/health
+```
+
+### 2. View Service Status
+```bash
+curl https://ms4-classification-uq2tkhfvqa-uc.a.run.app/
+# Shows: database status, AI mode, environment
+```
+
+### 3. List Classifications (No Auth Required)
+```bash
+curl https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications?limit=10
+```
+
+### 4. Classify Messages (Requires JWT)
+```bash
+curl -X POST https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message_ids": ["msg-uuid-1", "msg-uuid-2"]
+  }'
+```
+
+### 5. Interactive Testing
+Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
+
+---
+
+## 📋 Professor Requirements ✅
+
+### 1. OAuth2/OIDC Login ✅
+- Handled by Sanjay's integrations service (ms2)
+- Users log in with Google OAuth
+- JWT tokens generated and validated
+
+### 2. JWT Token Validation ✅
+- Implemented in `middleware/auth.py`
+- Protected endpoints: `POST /classifications`, `PUT`, `DELETE`
+- Demo: Try POST without token → 401 Unauthorized
+
+### 3. Cloud Run Deployment ✅
+- Service: ms4-classification
+- Region: us-central1
+- URL: https://ms4-classification-uq2tkhfvqa-uc.a.run.app
+
+### 4. Cloud SQL Database ✅
+- PostgreSQL 14 instance: ms4-classifications
+- Database: classifications_db
+- Stores all classification results
+
+---
+
+## 🎬 Demo Script (Friday Dec 12, 3pm)
+
+**1. Show JWT Authentication (2 min)**
+- Open Swagger UI at `/docs`
+- Try `POST /classifications` without auth → **401 error** ✅
+- Click "Authorize", add JWT token from Sanjay
+- Try again → **Success** ✅
+
+**2. Show AI Classification (2 min)**
+- Show message from Sanjay's service
+- Call classification endpoint
+- OpenAI analyzes: sender, urgency, content
+- Returns: label (todo/followup/noise) + priority (1-10)
+
+**3. Show Database Storage (1 min)**
+- GET `/classifications` shows stored results
+- Data persists in Cloud SQL
+- Can be queried by Akhil's composite
+
+**4. Show Integration (1 min)**
+- Service fetches messages from Sanjay's API
+- Stores only msg_id + classification
+- Akhil's composite aggregates everything
+
+---
+
+## 🔗 Important Links
+
+- **Live Service**: https://ms4-classification-uq2tkhfvqa-uc.a.run.app
+- **API Documentation**: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
+- **Health Check**: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/health
+- **GitHub**: [Your repo URL]
+- **Cloud Run Console**: https://console.cloud.google.com/run (Project: sodium-hue-479204-p3)
+- **Cloud SQL Console**: https://console.cloud.google.com/sql
+
+---
+
+## 📁 Project Structure
+
+```
+ms4-classification/
+├── main.py                      # FastAPI application & endpoints
+├── models/
+│   ├── classification.py        # Classification data models
+│   ├── message.py              # Message data models
+│   └── health.py               # Health check model
+├── services/
+│   ├── ai_classifier.py        # OpenAI GPT classification logic
+│   └── integrations_client.py  # Client for Sanjay's API
+├── middleware/
+│   └── auth.py                 # JWT validation middleware
+├── utils/
+│   ├── config.py               # Environment configuration
+│   └── database.py             # Cloud SQL connection
+├── Dockerfile                   # Container definition
+├── deploy.sh                    # Deployment script
+└── requirements.txt            # Python dependencies
+```
+
+---
+
+## 🤝 Team
+
+- **Jonathan** (Classification/ms4): 
+- **Sanjay** (Integrations/ms2): JWT tokens, messages API
+- **Akhil** (Composite/ms1): Integration requests
+- **David** (Tasks/ms3): Task auto-creation
+- **Beverly** (Web UI): Frontend integration
+
+---
+
+**Status**: ✅ **PRODUCTION READY** - Deployed and fully operational!

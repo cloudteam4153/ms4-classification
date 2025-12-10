@@ -5,16 +5,28 @@ import random
 from typing import List, Dict, Any, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
+from openai import OpenAI
 
 from models.classification import ClassificationLabel, ClassificationRead, ClassificationRequest, ClassificationResponse
 from models.message import MessageRead
+from utils.config import config
 
 class AIClassifier:
-    """AI-powered message classifier with mock OpenAI integration"""
+    """AI-powered message classifier using OpenAI API"""
     
     def __init__(self):
-        self.openai_api_key = None  # Will be set when OpenAI integration is added
-        self.mock_mode = True  # For now, use mock responses
+        self.openai_api_key = config.OPENAI_API_KEY
+        self.openai_model = config.OPENAI_MODEL
+        
+        # Use mock mode if no API key is provided
+        self.mock_mode = not self.openai_api_key
+        
+        if not self.mock_mode:
+            self.client = OpenAI(api_key=self.openai_api_key)
+            print(f"✅ OpenAI API initialized with model: {self.openai_model}")
+        else:
+            self.client = None
+            print("⚠️  OpenAI API key not found. Using mock classification mode.")
     
     def classify_messages(self, messages: List[MessageRead]) -> ClassificationResponse:
         """
@@ -124,8 +136,84 @@ class AIClassifier:
         )
     
     def _ai_classify_message(self, message: MessageRead) -> ClassificationRead:
-        """Real AI classification using OpenAI API (to be implemented)"""
-        # TODO: Implement actual OpenAI API call with comprehensive prompt
-        # For now, fall back to mock
-        return self._mock_classify_message(message)
+        """Real AI classification using OpenAI API"""
+        try:
+            # Prepare message content for AI analysis
+            content = f"""Subject: {message.subject or 'No subject'}
+From: {message.sender}
+Channel: {message.channel.value}
+Message: {message.snippet}
+Received: {message.received_at}"""
+            
+            # Create AI prompt for classification
+            system_prompt = """You are an AI assistant that classifies email and Slack messages into categories to help users prioritize their inbox.
+
+Classify each message into ONE of these categories:
+- "todo": Messages that require action, tasks to complete, assignments, requests that need response
+- "followup": Messages that need follow-up, reminders, status updates, pending items
+- "noise": Newsletters, promotions, automated notifications, spam, or informational messages that don't need action
+
+Also assign a priority score from 1-10 where:
+- 1-3: Low priority (newsletters, general info)
+- 4-6: Medium priority (routine tasks, standard requests)
+- 7-8: High priority (time-sensitive, important requests)
+- 9-10: Urgent (immediate action needed, from executives, critical deadlines)
+
+Consider these factors:
+- Sender importance (CEO, boss, manager vs automated systems)
+- Urgency indicators (URGENT, ASAP, deadline, due date)
+- Action requirements (need to, must, please do, can you)
+- Time sensitivity (tomorrow, today, by EOD)
+
+Return your response as JSON with this exact format:
+{
+  "label": "todo|followup|noise",
+  "priority": 1-10,
+  "reasoning": "brief explanation"
+}"""
+
+            user_prompt = f"Classify this message:\n\n{content}"
+            
+            # Call OpenAI API
+            response = self.client.chat.completions.create(
+                model=self.openai_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.3,  # Lower temperature for more consistent classification
+                max_tokens=150
+            )
+            
+            # Parse response
+            result = json.loads(response.choices[0].message.content)
+            label_str = result.get("label", "noise")
+            priority = int(result.get("priority", 5))
+            
+            # Validate and convert label
+            try:
+                label = ClassificationLabel(label_str)
+            except ValueError:
+                print(f"Invalid label from AI: {label_str}, defaulting to noise")
+                label = ClassificationLabel.NOISE
+            
+            # Ensure priority is in valid range
+            priority = max(1, min(10, priority))
+            
+            # Apply business rules to adjust priority
+            final_priority = self._apply_business_rules(message, priority)
+            
+            return ClassificationRead(
+                cls_id=uuid4(),
+                msg_id=message.msg_id,
+                label=label,
+                priority=final_priority,
+                created_at=datetime.utcnow()
+            )
+            
+        except Exception as e:
+            print(f"Error calling OpenAI API: {e}")
+            print("Falling back to mock classification")
+            return self._mock_classify_message(message)
     

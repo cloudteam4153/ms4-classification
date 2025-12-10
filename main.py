@@ -6,8 +6,10 @@ from datetime import datetime, date
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException, Query, Path, status
+from fastapi import FastAPI, HTTPException, Query, Path, status, Depends
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from models.health import Health
 from models.message import MessageRead, MessageCreate
@@ -19,31 +21,66 @@ from models.brief import BriefRead, BriefCreate, BriefRequest, BriefItem
 from models.task import TaskRead, TaskCreate, TaskUpdate, TaskGenerationRequest, TaskGenerationResponse
 from services.ai_classifier import AIClassifier
 from services.task_generator import TaskGenerator
+from services.integrations_client import integrations_client
+from middleware.auth import get_current_user, get_optional_user, extract_user_id
+from utils.config import config
+from utils.database import init_database, init_cloud_sql_connection, get_db, ClassificationDB
 
-port = int(os.environ.get("FASTAPIPORT", 8001))
+port = config.FASTAPIPORT
 
 # -----------------------------------------------------------------------------
-# In-memory "databases" for the prioritizer service
+# Fallback in-memory storage (if database fails)
 # -----------------------------------------------------------------------------
-messages: Dict[UUID, MessageRead] = {}
-classifications: Dict[UUID, ClassificationRead] = {}
+classifications_memory: Dict[UUID, ClassificationRead] = {}
 briefs: Dict[UUID, BriefRead] = {}
 tasks: Dict[UUID, TaskRead] = {}
+use_database = False
 
 # Initialize services
 ai_classifier = AIClassifier()
 task_generator = TaskGenerator()
 
 app = FastAPI(
-    title="Prioritizer Service API",
-    description="AI-powered message classification and prioritization service for unified inbox assistant",
-    version="1.0.0",
+    title="Classification Microservice API",
+    description="AI-powered message classification service with OpenAI integration",
+    version="2.0.0",
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize sample data on startup"""
-    initialize_sample_data()
+    """Initialize services on startup"""
+    global use_database
+    
+    print("🚀 Starting Classification Microservice...")
+    print(f"   Environment: {config.ENVIRONMENT}")
+    print(f"   Port: {config.FASTAPIPORT}")
+    
+    # Validate configuration
+    try:
+        config.validate()
+        print("✅ Configuration validated")
+    except ValueError as e:
+        print(f"⚠️  Configuration warning: {e}")
+    
+    # Initialize database
+    if config.USE_CLOUD_SQL_CONNECTOR:
+        use_database = init_cloud_sql_connection()
+    else:
+        use_database = init_database()
+    
+    if not use_database:
+        print("⚠️  Running in fallback mode with in-memory storage")
+    
+    print("✅ Service started successfully")
 
 # -----------------------------------------------------------------------------
 # Health endpoints
@@ -71,72 +108,107 @@ def get_health_with_path(
     return make_health(echo=echo, path_echo=path_echo)
 
 # -----------------------------------------------------------------------------
-# Message endpoints (for testing and integration)
+# Message endpoints (proxy to integrations service)
 # -----------------------------------------------------------------------------
 
-@app.post("/messages", response_model=MessageRead, status_code=201)
-def create_message(message: MessageCreate):
-    """Create a new message (for testing purposes)"""
-    message_read = MessageRead(
-        msg_id=uuid4(),
-        account_id=message.account_id,
-        external_id=message.external_id,
-        channel=message.channel,
-        sender=message.sender,
-        subject=message.subject,
-        snippet=message.snippet,
-        received_at=message.received_at,
-        raw_ref=message.raw_ref,
-        priority=message.priority,
-        created_at=datetime.utcnow()
-    )
-    messages[message_read.msg_id] = message_read
-    return message_read
-
 @app.get("/messages", response_model=List[MessageRead])
-def list_messages(
+async def list_messages(
     channel: Optional[str] = Query(None, description="Filter by channel (gmail/slack)"),
-    sender: Optional[str] = Query(None, description="Filter by sender"),
-    limit: Optional[int] = Query(50, description="Maximum number of messages to return")
+    limit: Optional[int] = Query(50, description="Maximum number of messages to return"),
+    user: Optional[dict] = Depends(get_optional_user)
 ):
-    """List messages with optional filtering"""
-    results = list(messages.values())
+    """
+    List messages from integrations service
     
-    if channel:
-        results = [m for m in results if m.channel.value == channel]
-    if sender:
-        results = [m for m in results if sender.lower() in m.sender.lower()]
-    
-    return results[:limit]
+    NOTE: This is a proxy endpoint. In production, the frontend should call
+    Sanjay's integrations service directly for messages. This is here for
+    testing and compatibility.
+    """
+    try:
+        # Get token if user is authenticated
+        token = None
+        # Note: In production, you'd pass the actual JWT token here
+        
+        messages = await integrations_client.get_messages(
+            token=token,
+            limit=limit,
+            channel=channel
+        )
+        return messages
+    except Exception as e:
+        print(f"Error fetching messages: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to fetch messages from integrations service"
+        )
 
 @app.get("/messages/{message_id}", response_model=MessageRead)
-def get_message(message_id: UUID):
-    """Get a specific message by ID"""
-    if message_id not in messages:
-        raise HTTPException(status_code=404, detail="Message not found")
-    return messages[message_id]
+async def get_message(
+    message_id: UUID,
+    user: Optional[dict] = Depends(get_optional_user)
+):
+    """Get a specific message by ID from integrations service"""
+    try:
+        message = await integrations_client.get_message_by_id(message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return message
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching message: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to fetch message from integrations service"
+        )
 
 # -----------------------------------------------------------------------------
 # Classification endpoints
 # -----------------------------------------------------------------------------
 
+def get_db_optional():
+    """Get database session or None if database is not available"""
+    if use_database:
+        return next(get_db())
+    return None
+
 @app.post("/classifications", response_model=ClassificationResponse, status_code=201)
-def classify_messages(request: ClassificationRequest):
-    """Classify multiple messages using AI"""
-    # Get messages to classify
-    messages_to_classify = []
-    for msg_id in request.message_ids:
-        if msg_id in messages:
-            messages_to_classify.append(messages[msg_id])
-        else:
-            raise HTTPException(status_code=404, detail=f"Message {msg_id} not found")
+async def classify_messages(
+    request: ClassificationRequest,
+    user: dict = Depends(get_current_user),  # JWT authentication required
+):
+    """
+    Classify multiple messages using AI (OpenAI)
+    
+    **Authentication Required**: This endpoint requires a valid JWT token.
+    """
+    # Fetch messages from integrations service
+    messages_to_classify = await integrations_client.get_messages_by_ids(request.message_ids)
+    
+    if not messages_to_classify:
+        raise HTTPException(status_code=404, detail="No messages found")
     
     # Classify messages using AI
     response = ai_classifier.classify_messages(messages_to_classify)
     
-    # Store classifications
-    for classification in response.classifications:
-        classifications[classification.cls_id] = classification
+    # Store classifications in database
+    if use_database:
+        from utils.database import get_db_session
+        with get_db_session() as db:
+            for classification in response.classifications:
+                db_classification = ClassificationDB(
+                    cls_id=classification.cls_id,
+                    msg_id=classification.msg_id,
+                    label=classification.label.value,
+                    priority=classification.priority,
+                    created_at=classification.created_at
+                )
+                db.add(db_classification)
+            db.commit()
+    else:
+        # Fallback to in-memory storage
+        for classification in response.classifications:
+            classifications_memory[classification.cls_id] = classification
     
     return response
 
@@ -144,46 +216,140 @@ def classify_messages(request: ClassificationRequest):
 def list_classifications(
     label: Optional[str] = Query(None, description="Filter by classification label"),
     min_priority: Optional[int] = Query(None, description="Minimum priority score"),
-    max_priority: Optional[int] = Query(None, description="Maximum priority score")
+    max_priority: Optional[int] = Query(None, description="Maximum priority score"),
+    limit: Optional[int] = Query(100, description="Maximum number of results"),
+    user: Optional[dict] = Depends(get_optional_user)
 ):
     """List classifications with optional filtering"""
-    results = list(classifications.values())
     
-    if label:
-        results = [c for c in results if c.label.value == label]
-    if min_priority is not None:
-        results = [c for c in results if c.priority >= min_priority]
-    if max_priority is not None:
-        results = [c for c in results if c.priority <= max_priority]
-    
-    return results
+    if use_database:
+        from utils.database import get_db_session
+        with get_db_session() as db:
+            # Query from database
+            query = db.query(ClassificationDB)
+            
+            if label:
+                query = query.filter(ClassificationDB.label == label)
+            if min_priority is not None:
+                query = query.filter(ClassificationDB.priority >= min_priority)
+            if max_priority is not None:
+                query = query.filter(ClassificationDB.priority <= max_priority)
+            
+            query = query.order_by(ClassificationDB.created_at.desc()).limit(limit)
+            db_results = query.all()
+            
+            # Convert to Pydantic models
+            results = []
+            for db_cls in db_results:
+                results.append(ClassificationRead(
+                    cls_id=db_cls.cls_id,
+                    msg_id=db_cls.msg_id,
+                    label=db_cls.label,
+                    priority=db_cls.priority,
+                    created_at=db_cls.created_at
+                ))
+            return results
+    else:
+        # Fallback to in-memory storage
+        results = list(classifications_memory.values())
+        
+        if label:
+            results = [c for c in results if c.label.value == label]
+        if min_priority is not None:
+            results = [c for c in results if c.priority >= min_priority]
+        if max_priority is not None:
+            results = [c for c in results if c.priority <= max_priority]
+        
+        return results[:limit]
 
 @app.get("/classifications/{classification_id}", response_model=ClassificationRead)
-def get_classification(classification_id: UUID):
+def get_classification(
+    classification_id: UUID,
+    user: Optional[dict] = Depends(get_optional_user)
+):
     """Get a specific classification by ID"""
-    if classification_id not in classifications:
-        raise HTTPException(status_code=404, detail="Classification not found")
-    return classifications[classification_id]
+    
+    if use_database:
+        from utils.database import get_db_session
+        with get_db_session() as db:
+            db_cls = db.query(ClassificationDB).filter(ClassificationDB.cls_id == classification_id).first()
+            if not db_cls:
+                raise HTTPException(status_code=404, detail="Classification not found")
+            
+            return ClassificationRead(
+                cls_id=db_cls.cls_id,
+                msg_id=db_cls.msg_id,
+                label=db_cls.label,
+                priority=db_cls.priority,
+                created_at=db_cls.created_at
+            )
+    else:
+        if classification_id not in classifications_memory:
+            raise HTTPException(status_code=404, detail="Classification not found")
+        return classifications_memory[classification_id]
 
 @app.put("/classifications/{classification_id}", response_model=ClassificationRead)
-def update_classification(classification_id: UUID, update: ClassificationUpdate):
-    """Update a classification"""
-    if classification_id not in classifications:
-        raise HTTPException(status_code=404, detail="Classification not found")
+def update_classification(
+    classification_id: UUID,
+    update: ClassificationUpdate,
+    user: dict = Depends(get_current_user)  # JWT authentication required
+):
+    """Update a classification (requires authentication)"""
     
-    stored = classifications[classification_id].model_dump()
-    stored.update(update.model_dump(exclude_unset=True))
-    stored["updated_at"] = datetime.utcnow()
-    
-    classifications[classification_id] = ClassificationRead(**stored)
-    return classifications[classification_id]
+    if use_database:
+        from utils.database import get_db_session
+        with get_db_session() as db:
+            db_cls = db.query(ClassificationDB).filter(ClassificationDB.cls_id == classification_id).first()
+            if not db_cls:
+                raise HTTPException(status_code=404, detail="Classification not found")
+            
+            # Update fields
+            if update.label is not None:
+                db_cls.label = update.label.value
+            if update.priority is not None:
+                db_cls.priority = update.priority
+            
+            db.commit()
+            db.refresh(db_cls)
+            
+            return ClassificationRead(
+                cls_id=db_cls.cls_id,
+                msg_id=db_cls.msg_id,
+                label=db_cls.label,
+                priority=db_cls.priority,
+                created_at=db_cls.created_at
+            )
+    else:
+        if classification_id not in classifications_memory:
+            raise HTTPException(status_code=404, detail="Classification not found")
+        
+        stored = classifications_memory[classification_id].model_dump()
+        stored.update(update.model_dump(exclude_unset=True))
+        
+        classifications_memory[classification_id] = ClassificationRead(**stored)
+        return classifications_memory[classification_id]
 
 @app.delete("/classifications/{classification_id}")
-def delete_classification(classification_id: UUID):
-    """Delete a classification"""
-    if classification_id not in classifications:
-        raise HTTPException(status_code=404, detail="Classification not found")
-    del classifications[classification_id]
+def delete_classification(
+    classification_id: UUID,
+    user: dict = Depends(get_current_user)  # JWT authentication required
+):
+    """Delete a classification (requires authentication)"""
+    
+    if use_database:
+        from utils.database import get_db_session
+        with get_db_session() as db:
+            db_cls = db.query(ClassificationDB).filter(ClassificationDB.cls_id == classification_id).first()
+            if not db_cls:
+                raise HTTPException(status_code=404, detail="Classification not found")
+            
+            db.delete(db_cls)
+            db.commit()
+    else:
+        if classification_id not in classifications_memory:
+            raise HTTPException(status_code=404, detail="Classification not found")
+        del classifications_memory[classification_id]
+    
     return {"message": "Classification deleted successfully"}
 
 # -----------------------------------------------------------------------------
@@ -395,63 +561,24 @@ def generate_tasks(request: TaskGenerationRequest):
 @app.get("/")
 def root():
     return {
-        "message": "Welcome to the Prioritizer Service API",
-        "description": "AI-powered message classification and task generation service",
-        "version": "1.0.0",
+        "message": "Welcome to the Classification Microservice API",
+        "description": "AI-powered message classification using OpenAI",
+        "version": "2.0.0",
+        "status": "online",
+        "environment": config.ENVIRONMENT,
+        "database": "connected" if use_database else "in-memory fallback",
+        "ai_mode": "OpenAI API" if not ai_classifier.mock_mode else "Mock (no API key)",
         "endpoints": {
             "health": "/health",
-            "classifications": "/classifications",
-            "tasks": "/tasks",
-            "briefs": "/briefs",
-            "messages": "/messages (for testing)"
+            "classifications": "/classifications (POST requires JWT)",
+            "messages": "/messages (proxy to integrations service)",
+            "docs": "/docs"
         },
-        "docs": "/docs"
+        "integrations": {
+            "integrations_service": config.INTEGRATIONS_SERVICE_URL,
+            "composite_service": config.COMPOSITE_SERVICE_URL
+        }
     }
-
-# -----------------------------------------------------------------------------
-# Initialize with sample data
-# -----------------------------------------------------------------------------
-
-def initialize_sample_data():
-    """Initialize the service with sample data for testing"""
-    
-    # Create sample messages
-    sample_messages = [
-        MessageCreate(
-            account_id=uuid4(),
-            external_id="gmail_001",
-            channel="gmail",
-            sender="boss@company.com",
-            subject="URGENT: Project Deadline Tomorrow",
-            snippet="Hi team, I need the project status update by EOD tomorrow. This is critical for our client presentation.",
-            received_at=datetime.utcnow(),
-            raw_ref="gmail://thread/001"
-        ),
-        MessageCreate(
-            account_id=uuid4(),
-            external_id="slack_001",
-            channel="slack",
-            sender="john.doe@company.com",
-            subject="Meeting Reminder",
-            snippet="Don't forget about our team standup at 10 AM tomorrow. We'll discuss the sprint progress.",
-            received_at=datetime.utcnow(),
-            raw_ref="slack://channel/general/001"
-        ),
-        MessageCreate(
-            account_id=uuid4(),
-            external_id="gmail_002",
-            channel="gmail",
-            sender="newsletter@example.com",
-            subject="Weekly Newsletter",
-            snippet="Check out our latest updates and industry news. No action required.",
-            received_at=datetime.utcnow(),
-            raw_ref="gmail://thread/002"
-        )
-    ]
-    
-    # Create the messages
-    for msg in sample_messages:
-        create_message(msg)
 
 # -----------------------------------------------------------------------------
 # Entrypoint for `python main.py`
@@ -459,8 +586,5 @@ def initialize_sample_data():
 
 if __name__ == "__main__":
     import uvicorn
-    
-    # Initialize sample data
-    initialize_sample_data()
     
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
