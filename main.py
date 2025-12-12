@@ -192,11 +192,14 @@ async def classify_messages(
     
     user_id_for_storage = request.user_id
     
-    # Fetch all messages from integrations service
-    all_messages = await integrations_client.get_messages(limit=100)
+    # Fetch messages for this user from integrations service
+    all_messages = await integrations_client.get_messages(user_id=user_id_for_storage, limit=100)
     
     if not all_messages:
-        raise HTTPException(status_code=404, detail="No messages found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No messages found for user_id: {user_id_for_storage}"
+        )
     
     # Get already-classified message_ids for this user
     already_classified_msg_ids = set()

@@ -22,7 +22,8 @@ class IntegrationsClient:
         self,
         token: Optional[str] = None,
         limit: int = 50,
-        channel: Optional[str] = None
+        channel: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> List[MessageRead]:
         """
         Fetch messages from Integrations service
@@ -31,6 +32,7 @@ class IntegrationsClient:
             token: JWT token for authentication
             limit: Maximum number of messages to fetch
             channel: Filter by channel (gmail/slack)
+            user_id: Filter by user_id (account_id)
             
         Returns:
             List of MessageRead objects
@@ -42,6 +44,8 @@ class IntegrationsClient:
         params = {"limit": limit}
         if channel:
             params["channel"] = channel
+        if user_id:
+            params["user_id"] = user_id
         
         try:
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
