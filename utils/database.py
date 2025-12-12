@@ -33,12 +33,13 @@ class ClassificationDB(Base):
     
     cls_id = Column(get_uuid_column(), primary_key=True, default=uuid.uuid4)
     msg_id = Column(get_uuid_column(), nullable=False, index=True)
+    user_id = Column(String(255), nullable=True, index=True)  # Added for user filtering
     label = Column(SQLEnum('todo', 'followup', 'noise', name='classification_label'), nullable=False)
     priority = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     def __repr__(self):
-        return f"<Classification(cls_id={self.cls_id}, msg_id={self.msg_id}, label={self.label})>"
+        return f"<Classification(cls_id={self.cls_id}, msg_id={self.msg_id}, user_id={self.user_id}, label={self.label})>"
 
 
 def init_database():
@@ -63,6 +64,26 @@ def init_database():
         
         # Create tables
         Base.metadata.create_all(bind=engine)
+        
+        # Run migrations (add user_id column if it doesn't exist)
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                # Check if user_id column exists
+                result = conn.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='classifications' AND column_name='user_id';
+                """))
+                
+                if not result.fetchone():
+                    print("🔄 Running migration: Adding user_id column...")
+                    conn.execute(text("ALTER TABLE classifications ADD COLUMN user_id VARCHAR(255);"))
+                    conn.execute(text("CREATE INDEX idx_classifications_user_id ON classifications(user_id);"))
+                    conn.commit()
+                    print("✅ Migration complete: user_id column added")
+        except Exception as e:
+            print(f"⚠️  Migration warning: {e}")
         
         print(f"✅ Database connected successfully: {config.DB_TYPE}://{config.DB_HOST}/{config.DB_NAME}")
         return True

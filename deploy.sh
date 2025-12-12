@@ -68,7 +68,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --max-instances 10 \
   --timeout 300 \
   --add-cloudsql-instances ${PROJECT_ID}:${REGION}:ms4-classifications \
-  --set-env-vars "ENVIRONMENT=production,FASTAPIPORT=8080,DB_TYPE=postgresql,DB_HOST=/cloudsql/${PROJECT_ID}:${REGION}:ms4-classifications,DB_PORT=5432,DB_NAME=${DB_NAME},DB_USER=${DB_USER},DB_PASSWORD=${DB_PASSWORD},OPENAI_API_KEY=${OPENAI_API_KEY},INTEGRATIONS_SERVICE_URL=${INTEGRATIONS_SERVICE_URL}"
+  --set-env-vars "ENVIRONMENT=production,FASTAPIPORT=8080,DB_TYPE=postgresql,DB_HOST=/cloudsql/${PROJECT_ID}:${REGION}:ms4-classifications,DB_PORT=5432,DB_NAME=${DB_NAME},DB_USER=${DB_USER},DB_PASSWORD=${DB_PASSWORD},OPENAI_API_KEY=${OPENAI_API_KEY},INTEGRATIONS_SERVICE_URL=${INTEGRATIONS_SERVICE_URL},GCP_PROJECT_ID=${PROJECT_ID},PUBSUB_TOPIC=classification-events"
 
 # Get service URL
 echo ""

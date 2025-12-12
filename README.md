@@ -32,7 +32,8 @@ User → Google OAuth (Sanjay/ms2)
      → JWT Token
      → Composite Service (Akhil/ms1)
      → Classification Service (YOU ARE HERE)
-     → Returns classifications
+     ├─→ Returns classifications
+     └─→ Emits events to Pub/Sub → Triggers Cloud Function
      → Composite aggregates with messages + tasks
      → Web UI (Beverly) displays unified inbox
 ```
@@ -42,6 +43,8 @@ User → Google OAuth (Sanjay/ms2)
 **Integrates WITH:**
 - **Integrations Service (Sanjay/ms2)**: Fetches messages via `/messages` API
 - **Composite Service (Akhil/ms1)**: Receives classification requests, returns results
+- **Google Cloud Pub/Sub**: Emits classification events to `classification-events` topic
+- **Google Cloud Function**: Triggered by classification events for notifications/workflows
 
 **Used BY:**
 - **Tasks Service (David/ms3)**: Monitors classifications to auto-create tasks
@@ -60,11 +63,19 @@ User → Google OAuth (Sanjay/ms2)
 - `GET /classifications/{id}` - Get single classification
 
 ### Classification Endpoints
-- `POST /classifications` - **Classify messages using OpenAI**
+- `POST /classifications` - **Classify messages using OpenAI** (also emits Pub/Sub event)
 - `PUT /classifications/{id}` - Update classification
 - `DELETE /classifications/{id}` - Delete classification
 
 *Note: JWT validation is handled by Sanjay's integrations service (ms2)*
+
+### Event-Driven Architecture
+When a classification is created, the service:
+1. Stores the classification in Cloud SQL
+2. Emits an event to Pub/Sub topic `classification-events`
+3. Triggers Google Cloud Function `classification-event-handler`
+
+See [CLOUD_FUNCTION_GUIDE.md](CLOUD_FUNCTION_GUIDE.md) for details.
 
 ---
 
@@ -217,6 +228,13 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 - Database: classifications_db
 - Stores all classification results
 
+### 4. Google Cloud Function + Pub/Sub ✅
+- **Cloud Function**: `classification-event-handler`
+- **Pub/Sub Topic**: `classification-events`
+- **Trigger**: Microservice emits event after each classification
+- **Purpose**: Demonstrates event-driven architecture (could trigger notifications, analytics, etc.)
+- **See**: [CLOUD_FUNCTION_GUIDE.md](CLOUD_FUNCTION_GUIDE.md)
+
 ---
 
 ## 🎬 Demo Script (Friday Dec 12, 3pm)
@@ -232,7 +250,13 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 - Data persists in Cloud SQL
 - Can be queried by Akhil's composite
 
-**3. Show Integration (1 min)**
+**3. Show Cloud Function Trigger (1 min)**
+- After classification, event emitted to Pub/Sub
+- Cloud Function automatically triggered
+- Show logs: `gcloud functions logs read classification-event-handler --region=us-central1 --limit=10`
+- Demonstrates event-driven architecture
+
+**4. Show Integration (30 sec)**
 - Service fetches messages from Sanjay's API
 - Stores only msg_id + classification
 - Akhil's composite aggregates everything

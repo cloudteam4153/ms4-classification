@@ -29,3 +29,6 @@ httpx==0.25.0
 
 # Environment management
 python-dotenv==1.0.0
+
+# Google Cloud Pub/Sub for event emission
+google-cloud-pubsub==2.18.4

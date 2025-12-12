@@ -14,6 +14,7 @@ class ClassificationLabel(str, Enum):
 class ClassificationBase(BaseModel):
     """Base classification model"""
     msg_id: UUID = Field(..., description="Message ID being classified")
+    user_id: Optional[str] = Field(None, description="User ID for filtering")
     label: ClassificationLabel = Field(..., description="Classification label")
     priority: int = Field(..., ge=1, le=10, description="Priority score from 1-10")
 
@@ -45,7 +46,14 @@ class ClassificationRead(ClassificationBase):
 
 class ClassificationRequest(BaseModel):
     """Request to classify multiple messages"""
-    message_ids: List[UUID] = Field(..., description="List of message IDs to classify")
+    message_ids: Optional[List[UUID]] = Field(None, description="List of message IDs to classify")
+    user_id: Optional[str] = Field(None, description="User ID to fetch and classify all their messages")
+    
+    def model_post_init(self, __context):
+        """Validate that either message_ids or user_id is provided"""
+        if not self.message_ids and not self.user_id:
+            from pydantic import ValidationError
+            raise ValueError("Either 'message_ids' or 'user_id' must be provided")
 
 class ClassificationResponse(BaseModel):
     """Response containing classification results"""

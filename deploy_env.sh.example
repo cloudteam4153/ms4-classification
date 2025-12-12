@@ -14,3 +14,7 @@ export DB_USER="postgres"
 export DB_NAME="classifications_db"
 export INTEGRATIONS_SERVICE_URL="https://integrations-svc-ms2-ft4pa23xra-uc.a.run.app"
 
+# Pub/Sub configuration (for Cloud Function)
+export GCP_PROJECT_ID="sodium-hue-479204-p3"
+export PUBSUB_TOPIC="classification-events"
+

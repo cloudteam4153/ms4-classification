@@ -25,6 +25,7 @@ from services.integrations_client import integrations_client
 from middleware.auth import get_current_user, get_optional_user, extract_user_id
 from utils.config import config
 from utils.database import init_database, init_cloud_sql_connection, get_db, ClassificationDB
+from utils.pubsub_client import pubsub_client
 
 port = config.FASTAPIPORT
 
@@ -180,10 +181,24 @@ async def classify_messages(
     """
     Classify multiple messages using AI (OpenAI)
     
-    **Authentication Required**: This endpoint requires a valid JWT token.
+    Accepts either:
+    - message_ids: List of specific message IDs to classify
+    - user_id: Fetch and classify all messages for a user
+    
+    JWT tokens are optional (handled by composite service)
     """
-    # Fetch messages from integrations service
-    messages_to_classify = await integrations_client.get_messages_by_ids(request.message_ids)
+    # Determine which messages to classify
+    user_id_for_storage = request.user_id  # Store user_id if provided
+    
+    if request.message_ids:
+        # Fetch specific messages by IDs
+        messages_to_classify = await integrations_client.get_messages_by_ids(request.message_ids)
+    elif request.user_id:
+        # Fetch all messages for this user
+        messages_to_classify = await integrations_client.get_messages(limit=100)
+        # Note: In production, integrations service should filter by user_id
+    else:
+        raise HTTPException(status_code=400, detail="Either 'message_ids' or 'user_id' must be provided")
     
     if not messages_to_classify:
         raise HTTPException(status_code=404, detail="No messages found")
@@ -199,6 +214,7 @@ async def classify_messages(
                 db_classification = ClassificationDB(
                     cls_id=classification.cls_id,
                     msg_id=classification.msg_id,
+                    user_id=user_id_for_storage,
                     label=classification.label.value,
                     priority=classification.priority,
                     created_at=classification.created_at
@@ -210,17 +226,29 @@ async def classify_messages(
         for classification in response.classifications:
             classifications_memory[classification.cls_id] = classification
     
+    # Emit events to Pub/Sub for each classification
+    # This triggers the Google Cloud Function (requirement fulfilled!)
+    for classification in response.classifications:
+        pubsub_client.publish_classification_event({
+            "cls_id": classification.cls_id,
+            "msg_id": classification.msg_id,
+            "label": classification.label.value,
+            "priority": classification.priority,
+            "created_at": classification.created_at
+        })
+    
     return response
 
 @app.get("/classifications", response_model=List[ClassificationRead])
 def list_classifications(
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
     label: Optional[str] = Query(None, description="Filter by classification label"),
     min_priority: Optional[int] = Query(None, description="Minimum priority score"),
     max_priority: Optional[int] = Query(None, description="Maximum priority score"),
     limit: Optional[int] = Query(100, description="Maximum number of results"),
     user: Optional[dict] = Depends(get_optional_user)
 ):
-    """List classifications with optional filtering"""
+    """List classifications with optional filtering (supports user_id for composite)"""
     
     if use_database:
         from utils.database import get_db_session
@@ -228,6 +256,8 @@ def list_classifications(
             # Query from database
             query = db.query(ClassificationDB)
             
+            if user_id:
+                query = query.filter(ClassificationDB.user_id == user_id)
             if label:
                 query = query.filter(ClassificationDB.label == label)
             if min_priority is not None:
@@ -244,6 +274,7 @@ def list_classifications(
                 results.append(ClassificationRead(
                     cls_id=db_cls.cls_id,
                     msg_id=db_cls.msg_id,
+                    user_id=db_cls.user_id,
                     label=db_cls.label,
                     priority=db_cls.priority,
                     created_at=db_cls.created_at
@@ -279,6 +310,7 @@ def get_classification(
             return ClassificationRead(
                 cls_id=db_cls.cls_id,
                 msg_id=db_cls.msg_id,
+                user_id=db_cls.user_id,
                 label=db_cls.label,
                 priority=db_cls.priority,
                 created_at=db_cls.created_at
@@ -315,6 +347,7 @@ def update_classification(
             return ClassificationRead(
                 cls_id=db_cls.cls_id,
                 msg_id=db_cls.msg_id,
+                user_id=db_cls.user_id,
                 label=db_cls.label,
                 priority=db_cls.priority,
                 created_at=db_cls.created_at

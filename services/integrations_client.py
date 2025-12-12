@@ -44,9 +44,9 @@ class IntegrationsClient:
             params["channel"] = channel
         
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
                 response = await client.get(
-                    f"{self.base_url}/messages",
+                    f"{self.base_url}/messages/",  # Add trailing slash
                     headers=headers,
                     params=params
                 )
@@ -86,9 +86,9 @@ class IntegrationsClient:
             headers["Authorization"] = f"Bearer {token}"
         
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
                 response = await client.get(
-                    f"{self.base_url}/messages/{message_id}",
+                    f"{self.base_url}/messages/{message_id}",  # No trailing slash for single message
                     headers=headers
                 )
                 
@@ -124,9 +124,9 @@ class IntegrationsClient:
             headers["Authorization"] = f"Bearer {token}"
         
         # Fetch messages in parallel using asyncio.gather
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             tasks = [
-                client.get(f"{self.base_url}/messages/{msg_id}", headers=headers)
+                client.get(f"{self.base_url}/messages/{msg_id}", headers=headers)  # No trailing slash for single message
                 for msg_id in message_ids
             ]
             
