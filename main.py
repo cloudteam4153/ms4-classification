@@ -179,29 +179,54 @@ async def classify_messages(
     user: Optional[dict] = Depends(get_optional_user),  # Optional JWT authentication
 ):
     """
-    Classify multiple messages using AI (OpenAI)
+    Classify new messages for a user using AI (OpenAI)
     
-    Accepts either:
-    - message_ids: List of specific message IDs to classify
-    - user_id: Fetch and classify all messages for a user
+    Requires user_id. Only classifies messages that haven't been classified yet.
+    This ensures one classification per message_id per user.
     
     JWT tokens are optional (handled by composite service)
     """
-    # Determine which messages to classify
-    user_id_for_storage = request.user_id  # Store user_id if provided
+    # Require user_id
+    if not request.user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
     
-    if request.message_ids:
-        # Fetch specific messages by IDs
-        messages_to_classify = await integrations_client.get_messages_by_ids(request.message_ids)
-    elif request.user_id:
-        # Fetch all messages for this user
-        messages_to_classify = await integrations_client.get_messages(limit=100)
-        # Note: In production, integrations service should filter by user_id
+    user_id_for_storage = request.user_id
+    
+    # Fetch all messages from integrations service
+    all_messages = await integrations_client.get_messages(limit=100)
+    
+    if not all_messages:
+        raise HTTPException(status_code=404, detail="No messages found")
+    
+    # Get already-classified message_ids for this user
+    already_classified_msg_ids = set()
+    if use_database:
+        from utils.database import get_db_session
+        with get_db_session() as db:
+            existing = db.query(ClassificationDB.msg_id).filter(
+                ClassificationDB.user_id == user_id_for_storage
+            ).all()
+            already_classified_msg_ids = {str(row[0]) for row in existing}
     else:
-        raise HTTPException(status_code=400, detail="Either 'message_ids' or 'user_id' must be provided")
+        # Fallback: check in-memory storage
+        for cls in classifications_memory.values():
+            if hasattr(cls, 'user_id') and cls.user_id == user_id_for_storage:
+                already_classified_msg_ids.add(str(cls.msg_id))
+    
+    # Filter to only NEW messages (not yet classified)
+    messages_to_classify = [
+        msg for msg in all_messages 
+        if str(msg.msg_id) not in already_classified_msg_ids
+    ]
     
     if not messages_to_classify:
-        raise HTTPException(status_code=404, detail="No messages found")
+        # All messages already classified
+        return ClassificationResponse(
+            classifications=[],
+            total_processed=0,
+            success_count=0,
+            error_count=0
+        )
     
     # Classify messages using AI
     response = ai_classifier.classify_messages(messages_to_classify)
@@ -384,6 +409,33 @@ def delete_classification(
         del classifications_memory[classification_id]
     
     return {"message": "Classification deleted successfully"}
+
+@app.delete("/admin/reset-database")
+def reset_database(confirm: str = Query(..., description="Must be 'DELETE_ALL' to confirm")):
+    """
+    ADMIN ONLY: Delete all classifications from database
+    
+    WARNING: This deletes ALL data! Use with caution.
+    Must pass ?confirm=DELETE_ALL
+    """
+    if confirm != "DELETE_ALL":
+        raise HTTPException(status_code=400, detail="Must confirm with ?confirm=DELETE_ALL")
+    
+    if use_database:
+        from utils.database import get_db_session
+        from sqlalchemy import text
+        with get_db_session() as db:
+            result = db.execute(text("DELETE FROM classifications"))
+            db.commit()
+            deleted_count = result.rowcount
+    else:
+        deleted_count = len(classifications_memory)
+        classifications_memory.clear()
+    
+    return {
+        "message": "Database reset complete",
+        "deleted_count": deleted_count
+    }
 
 # -----------------------------------------------------------------------------
 # Brief endpoints

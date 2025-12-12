@@ -22,10 +22,12 @@ Each classification includes a priority score (1-10) based on:
 - Time sensitivity (today, tomorrow, EOD)
 
 ### ✨ Key Features
+- ✅ **Smart classification**: Only classifies NEW messages automatically
+- ✅ **Zero duplicates**: One classification per message, guaranteed
 - ✅ **User-based filtering**: Each user only sees their own classifications
-- ✅ **Bulk classification**: Classify all messages for a user in one request
-- ✅ **Event-driven**: Triggers Google Cloud Function for each classification
+- ✅ **Event-driven**: Triggers Google Cloud Function for each NEW classification
 - ✅ **No auth required**: JWT handled by integrations service (Sanjay/ms2)
+- ✅ **Simple API**: Just pass user_id, service handles the rest
 
 ---
 
@@ -65,11 +67,11 @@ User → Google OAuth (Sanjay/ms2)
 - `GET /health` - Health check
 - `GET /messages` - List messages (proxies to Sanjay's service)
 - `GET /messages/{id}` - Get single message
-- `GET /classifications` - List all classifications
+- `GET /classifications` - List all classifications (supports ?user_id filter)
 - `GET /classifications/{id}` - Get single classification
 
 ### Classification Endpoints
-- `POST /classifications` - **Classify messages using OpenAI** (also emits Pub/Sub event)
+- `POST /classifications` - **Classify NEW messages for user** (requires user_id, auto-deduplicates, emits Pub/Sub events)
 - `PUT /classifications/{id}` - Update classification
 - `DELETE /classifications/{id}` - Delete classification
 
@@ -110,22 +112,17 @@ for classification in classifications:
     # Fetch full message from Sanjay's service using msg_id
 ```
 
-**Trigger new classification:**
+**Trigger classification for user:**
 ```python
-# Option A: Classify specific messages
-response = requests.post(
-    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
-    json={
-        "message_ids": [msg_id1, msg_id2],
-        "user_id": "authenticated_user_id"
-    }
-)
-
-# Option B: Classify ALL messages for user
+# Classify new messages (automatically skips already-classified)
 response = requests.post(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
     json={"user_id": "authenticated_user_id"}
 )
+
+# First time: Classifies all 44 messages
+# Next time: Classifies 0 (already done)
+# Smart: Only classifies what's new!
 ```
 
 ### For David (Tasks Service)
@@ -258,27 +255,27 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 
 ## 🎬 Demo Script (Friday Dec 12, 3pm)
 
-**1. Show AI Classification (2 min)**
-- Show message from Sanjay's service
-- Call classification endpoint
-- OpenAI analyzes: sender, urgency, content
-- Returns: label (todo/followup/noise) + priority (1-10)
+**1. Show Smart Classification (2 min)**
+- Call: POST /classifications with user_id
+- First time: OpenAI classifies all 44 messages
+- Show results: label (todo/followup/noise) + priority (1-10)
+- Call again: Classifies 0 (all already done - smart!)
 
 **2. Show Database Storage (1 min)**
-- GET `/classifications` shows stored results
+- GET `/classifications?user_id=xxx` shows user's results
 - Data persists in Cloud SQL
-- Can be queried by Akhil's composite
+- Zero duplicates guaranteed
 
 **3. Show Cloud Function Trigger (1 min)**
-- After classification, event emitted to Pub/Sub
-- Cloud Function automatically triggered
+- After classification, events emitted to Pub/Sub
+- Cloud Function automatically triggered for EACH classification
 - Show logs: `gcloud functions logs read classification-event-handler --region=us-central1 --limit=10`
 - Demonstrates event-driven architecture
 
 **4. Show Integration (30 sec)**
-- Service fetches messages from Sanjay's API
-- Stores only msg_id + classification
-- Akhil's composite aggregates everything
+- Service automatically fetches messages from Sanjay's API
+- Smart deduplication: only classifies new messages
+- Akhil's composite just passes user_id - we handle the rest
 
 ---
 

@@ -17,17 +17,17 @@ echo ""
 echo "✅ Test 1 Complete"
 echo ""
 
-# Test 2: Classify Message
-echo "📊 Test 2: Classify Message (This triggers Cloud Function)"
-echo "-----------------------------------------------------------"
+# Test 2: Classify Messages for User
+echo "📊 Test 2: Classify Messages for User (This triggers Cloud Function)"
+echo "----------------------------------------------------------------------"
 RESPONSE=$(curl -s -X POST "${SERVICE_URL}/classifications" \
   -H "Content-Type: application/json" \
-  -d "{\"message_ids\": [\"${TEST_MESSAGE_ID}\"]}")
+  -d "{\"user_id\": \"test_user_demo\"}")
 
 echo "$RESPONSE" | python3 -m json.tool
 
 # Extract cls_id for next test
-CLS_ID=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin)['classifications'][0]['cls_id'])" 2>/dev/null)
+CLS_ID=$(echo "$RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['classifications'][0]['cls_id'] if data.get('classifications') else '')" 2>/dev/null)
 
 echo ""
 echo "✅ Test 2 Complete"

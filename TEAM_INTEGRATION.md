@@ -9,7 +9,9 @@
 ## 🎯 For Akhil (Composite Microservice)
 
 ### What My Service Does
-Takes message IDs → Returns AI classifications (todo/followup/noise) + priority scores (1-10)
+Automatically classifies ALL new messages for a user → Returns AI classifications (todo/followup/noise) + priority scores (1-10)
+
+**Key feature**: Only classifies messages that haven't been classified yet. Prevents duplicates automatically!
 
 ### How to Call My Service
 
@@ -47,26 +49,23 @@ for cls in classifications:
 
 **2. Classify New Messages for User**
 ```python
-# Option A: Classify specific messages
+# Classify new messages for a user (smart - only classifies what's new!)
 response = requests.post(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
     json={
-        "message_ids": ["msg-uuid-1", "msg-uuid-2"],
-        "user_id": "authenticated_user_id"  # Tag with user
-    }
-)
-
-# Option B: Classify ALL messages for a user (first-time setup)
-response = requests.post(
-    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
-    json={
-        "user_id": "authenticated_user_id"  # Fetches & classifies all
+        "user_id": "authenticated_user_id"  # REQUIRED
     }
 )
 
 result = response.json()
-# Returns: {"classifications": [...], "total_processed": 44, "success_count": 44}
-# Note: Also triggers Cloud Function for each classification!
+# First time: {"classifications": [...], "total_processed": 44, "success_count": 44}
+# Next time: {"classifications": [], "total_processed": 0, "success_count": 0}
+# 
+# The service automatically:
+# 1. Checks what's already classified for this user
+# 2. Only classifies NEW messages
+# 3. Prevents duplicates
+# 4. Triggers Cloud Function for each NEW classification
 ```
 
 **3. Filter Classifications**
@@ -84,9 +83,10 @@ response = requests.get(
 ```
 
 ### Integration Points
-- **You call me**: When aggregating dashboard data
-- **You call me**: When user triggers classification
-- **I call Sanjay**: To fetch message content (you don't need to)
+- **You call me**: When aggregating dashboard data (GET /classifications?user_id=xxx)
+- **You call me**: When user syncs/logs in (POST /classifications with user_id)
+- **I call Sanjay**: To fetch messages automatically
+- **Smart behavior**: I only classify new messages, preventing duplicates
 
 ---
 
@@ -166,9 +166,10 @@ https://ms4-classification-uq2tkhfvqa-uc.a.run.app
 
 **POST /classifications**
 - **Auth**: None required (handled by composite)
-- **Body**: `{"message_ids": ["uuid1", "uuid2"], "user_id": "user123"}` OR `{"user_id": "user123"}`
-- **Returns**: Classification results
-- **Note**: Triggers Cloud Function for each classification created!
+- **Body**: `{"user_id": "user123"}` (REQUIRED)
+- **Returns**: Classification results for NEW messages only
+- **Smart**: Automatically skips already-classified messages
+- **Note**: Triggers Cloud Function for each NEW classification created!
 
 **GET /classifications/{id}**
 - **Auth**: Optional
@@ -235,14 +236,14 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 A: No! Just send message IDs. I fetch the content from Sanjay's service.
 
 
-**Q: Can I classify multiple messages at once?**  
-A: Yes! Send an array of message_ids in one request.
+**Q: Do I need to track which messages are classified?**  
+A: No! The service automatically tracks this. Just call with user_id and it only classifies new ones.
 
 **Q: Do classifications persist?**  
 A: Yes! Stored in Cloud SQL database permanently.
 
 **Q: What if a message is already classified?**  
-A: You can re-classify it. New classification will be created (we keep history).
+A: It's automatically skipped. One classification per message_id per user, no duplicates.
 
 **Q: Do I need authentication?**  
 A: No! All endpoints are public. OAuth/JWT is handled by Sanjay's service.
@@ -269,7 +270,8 @@ A: Pass `user_id` in POST to tag classifications, and in GET to filter. Each use
 **Status**: ✅ Production Ready
 
 **New Features**:
-- ✅ User-based filtering with `user_id` parameter
-- ✅ Cloud Function integration (triggers on every classification)
-- ✅ Classify all messages for a user in one request
+- ✅ User-based filtering with `user_id` parameter (REQUIRED)
+- ✅ Automatic duplicate prevention (one classification per message)
+- ✅ Smart classification (only processes new messages)
+- ✅ Cloud Function integration (triggers on every NEW classification)
 
