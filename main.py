@@ -457,6 +457,45 @@ def reset_database(confirm: str = Query(..., description="Must be 'DELETE_ALL' t
         "deleted_count": deleted_count
     }
 
+@app.delete("/admin/delete-user-classifications")
+def delete_user_classifications(
+    user_id: str = Query(..., description="User ID to delete classifications for"),
+    confirm: str = Query(..., description="Must be 'DELETE' to confirm")
+):
+    """
+    ADMIN ONLY: Delete all classifications for a specific user
+    
+    Usage: /admin/delete-user-classifications?user_id=test_user&confirm=DELETE
+    """
+    if confirm != "DELETE":
+        raise HTTPException(status_code=400, detail="Must confirm with ?confirm=DELETE")
+    
+    if use_database:
+        from utils.database import get_db_session
+        from sqlalchemy import text
+        with get_db_session() as db:
+            result = db.execute(
+                text("DELETE FROM classifications WHERE user_id = :user_id"),
+                {"user_id": user_id}
+            )
+            db.commit()
+            deleted_count = result.rowcount
+    else:
+        # Fallback to in-memory storage
+        to_delete = [
+            cls_id for cls_id, cls in classifications_memory.items()
+            if hasattr(cls, 'user_id') and cls.user_id == user_id
+        ]
+        for cls_id in to_delete:
+            del classifications_memory[cls_id]
+        deleted_count = len(to_delete)
+    
+    return {
+        "message": f"Deleted classifications for user: {user_id}",
+        "user_id": user_id,
+        "deleted_count": deleted_count
+    }
+
 # -----------------------------------------------------------------------------
 # Brief endpoints
 # -----------------------------------------------------------------------------
