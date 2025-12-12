@@ -231,11 +231,25 @@ async def classify_messages(
     # Classify messages using AI
     response = ai_classifier.classify_messages(messages_to_classify)
     
+    # Update classifications with user_id
+    updated_classifications = []
+    for classification in response.classifications:
+        # Create new classification with user_id
+        updated_cls = ClassificationRead(
+            cls_id=classification.cls_id,
+            msg_id=classification.msg_id,
+            user_id=user_id_for_storage,
+            label=classification.label,
+            priority=classification.priority,
+            created_at=classification.created_at
+        )
+        updated_classifications.append(updated_cls)
+    
     # Store classifications in database
     if use_database:
         from utils.database import get_db_session
         with get_db_session() as db:
-            for classification in response.classifications:
+            for classification in updated_classifications:
                 db_classification = ClassificationDB(
                     cls_id=classification.cls_id,
                     msg_id=classification.msg_id,
@@ -248,12 +262,12 @@ async def classify_messages(
             db.commit()
     else:
         # Fallback to in-memory storage
-        for classification in response.classifications:
+        for classification in updated_classifications:
             classifications_memory[classification.cls_id] = classification
     
     # Emit events to Pub/Sub for each classification
     # This triggers the Google Cloud Function (requirement fulfilled!)
-    for classification in response.classifications:
+    for classification in updated_classifications:
         pubsub_client.publish_classification_event({
             "cls_id": classification.cls_id,
             "msg_id": classification.msg_id,
@@ -262,7 +276,13 @@ async def classify_messages(
             "created_at": classification.created_at
         })
     
-    return response
+    # Return response with updated classifications
+    return ClassificationResponse(
+        classifications=updated_classifications,
+        total_processed=response.total_processed,
+        success_count=response.success_count,
+        error_count=response.error_count
+    )
 
 @app.get("/classifications", response_model=List[ClassificationRead])
 def list_classifications(
@@ -442,7 +462,7 @@ def reset_database(confirm: str = Query(..., description="Must be 'DELETE_ALL' t
 # -----------------------------------------------------------------------------
 
 @app.post("/briefs", response_model=BriefRead, status_code=201)
-def create_brief(request: BriefRequest):
+async def create_brief(request: BriefRequest):
     """Generate a daily brief for a user"""
     if request.date:
         try:
@@ -454,7 +474,7 @@ def create_brief(request: BriefRequest):
     max_items = request.max_items or 50
     
     # Get classifications for the user (in a real system, this would filter by user_id)
-    user_classifications = list(classifications.values())
+    user_classifications = list(classifications_memory.values())
     
     # Filter by date and sort by priority
     # For now, include all classifications since we're using in-memory storage
@@ -466,11 +486,15 @@ def create_brief(request: BriefRequest):
     # Take top items
     top_classifications = today_classifications[:max_items]
     
+    # Fetch messages from integrations service
+    all_messages = await integrations_client.get_messages(limit=100)
+    messages_dict = {msg.msg_id: msg for msg in all_messages}
+    
     # Create brief items
     brief_items = []
     for classification in top_classifications:
-        if classification.msg_id in messages:
-            message = messages[classification.msg_id]
+        if classification.msg_id in messages_dict:
+            message = messages_dict[classification.msg_id]
             brief_item = BriefItem(
                 classification_id=classification.cls_id,
                 message_id=classification.msg_id,
@@ -609,22 +633,25 @@ def delete_task(task_id: UUID):
     return {"message": "Task deleted successfully"}
 
 @app.post("/tasks/generate", response_model=TaskGenerationResponse, status_code=201)
-def generate_tasks(request: TaskGenerationRequest):
+async def generate_tasks(request: TaskGenerationRequest):
     """Generate tasks from classifications"""
     # Get classifications to generate tasks from
     classifications_to_process = []
     for cls_id in request.classification_ids:
-        if cls_id in classifications:
-            classifications_to_process.append(classifications[cls_id])
+        if cls_id in classifications_memory:
+            classifications_to_process.append(classifications_memory[cls_id])
         else:
             raise HTTPException(status_code=404, detail=f"Classification {cls_id} not found")
     
-    # Get associated messages
+    # Get associated messages from integrations service
     message_ids = [cls.msg_id for cls in classifications_to_process]
+    all_messages = await integrations_client.get_messages(limit=100)
+    messages_dict = {msg.msg_id: msg for msg in all_messages}
+    
     messages_to_process = []
     for msg_id in message_ids:
-        if msg_id in messages:
-            messages_to_process.append(messages[msg_id])
+        if msg_id in messages_dict:
+            messages_to_process.append(messages_dict[msg_id])
         else:
             raise HTTPException(status_code=404, detail=f"Message {msg_id} not found")
     
