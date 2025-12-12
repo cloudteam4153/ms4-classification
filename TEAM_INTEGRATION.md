@@ -13,14 +13,17 @@ Takes message IDs → Returns AI classifications (todo/followup/noise) + priorit
 
 ### How to Call My Service
 
-**1. Get Classifications for Dashboard**
+**1. Get Classifications for User (Dashboard)**
 ```python
 import requests
 
-# Get all recent classifications
+# Get classifications for specific user
 response = requests.get(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
-    params={"limit": 100}
+    params={
+        "user_id": "authenticated_user_id",  # Filter by user
+        "limit": 100
+    }
 )
 classifications = response.json()
 
@@ -29,6 +32,7 @@ classifications = response.json()
 #   {
 #     "cls_id": "uuid",
 #     "msg_id": "message-uuid-from-sanjay",
+#     "user_id": "authenticated_user_id",
 #     "label": "todo",
 #     "priority": 8,
 #     "created_at": "2025-12-10T..."
@@ -41,26 +45,37 @@ for cls in classifications:
     # Combine for unified inbox display
 ```
 
-**2. Classify New Messages**
+**2. Classify New Messages for User**
 ```python
-# When user wants to classify messages
+# Option A: Classify specific messages
 response = requests.post(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
     json={
-        "message_ids": ["msg-uuid-1", "msg-uuid-2", "msg-uuid-3"]
+        "message_ids": ["msg-uuid-1", "msg-uuid-2"],
+        "user_id": "authenticated_user_id"  # Tag with user
+    }
+)
+
+# Option B: Classify ALL messages for a user (first-time setup)
+response = requests.post(
+    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
+    json={
+        "user_id": "authenticated_user_id"  # Fetches & classifies all
     }
 )
 
 result = response.json()
-# Returns: {"classifications": [...], "total_processed": 3, "success_count": 3}
+# Returns: {"classifications": [...], "total_processed": 44, "success_count": 44}
+# Note: Also triggers Cloud Function for each classification!
 ```
 
 **3. Filter Classifications**
 ```python
-# Get only high-priority TODOs
+# Get only high-priority TODOs for a user
 response = requests.get(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
     params={
+        "user_id": "authenticated_user_id",  # Important: filter by user!
         "label": "todo",
         "min_priority": 7,
         "limit": 50
@@ -83,10 +98,11 @@ response = requests.get(
 ```python
 import requests
 
-# Check for new TODOs that need tasks created
+# Check for new TODOs for a specific user
 response = requests.get(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
     params={
+        "user_id": "user_id_here",  # Filter by user
         "label": "todo",
         "min_priority": 6  # Medium-high priority and above
     }
@@ -94,12 +110,14 @@ response = requests.get(
 
 for classification in response.json():
     msg_id = classification["msg_id"]
+    user_id = classification["user_id"]
     priority = classification["priority"]
     
     # Check if task already exists for this message
     if not task_exists(msg_id):
         # Create task in your service
         create_task(
+            user_id=user_id,
             message_id=msg_id,
             priority=priority,
             auto_generated=True
@@ -142,14 +160,15 @@ https://ms4-classification-uq2tkhfvqa-uc.a.run.app
 ### Key Endpoints
 
 **GET /classifications**
-- **Auth**: Optional
-- **Params**: `label`, `min_priority`, `max_priority`, `limit`
+- **Auth**: None required
+- **Params**: `user_id` (filter by user), `label`, `min_priority`, `max_priority`, `limit`
 - **Returns**: Array of classification objects
 
 **POST /classifications**
-- **Auth**: Optional
-- **Body**: `{"message_ids": ["uuid1", "uuid2"]}`
+- **Auth**: None required (handled by composite)
+- **Body**: `{"message_ids": ["uuid1", "uuid2"], "user_id": "user123"}` OR `{"user_id": "user123"}`
 - **Returns**: Classification results
+- **Note**: Triggers Cloud Function for each classification created!
 
 **GET /classifications/{id}**
 - **Auth**: Optional
@@ -190,6 +209,7 @@ Visit: https://ms4-classification-uq2tkhfvqa-uc.a.run.app/docs
 {
   "cls_id": "550e8400-e29b-41d4-a716-446655440000",
   "msg_id": "123e4567-e89b-12d3-a456-426614174000",
+  "user_id": "authenticated_user_id",
   "label": "todo",
   "priority": 8,
   "created_at": "2025-12-10T21:00:00Z"
@@ -227,6 +247,9 @@ A: You can re-classify it. New classification will be created (we keep history).
 **Q: Do I need authentication?**  
 A: No! All endpoints are public. OAuth/JWT is handled by Sanjay's service.
 
+**Q: How does user filtering work?**  
+A: Pass `user_id` in POST to tag classifications, and in GET to filter. Each user only sees their own classifications.
+
 ---
 
 ## 🐛 Troubleshooting
@@ -241,7 +264,12 @@ A: No! All endpoints are public. OAuth/JWT is handled by Sanjay's service.
 
 ---
 
-**Last Updated**: December 10, 2025  
+**Last Updated**: December 12, 2025  
 **Service Version**: 2.0.0  
 **Status**: ✅ Production Ready
+
+**New Features**:
+- ✅ User-based filtering with `user_id` parameter
+- ✅ Cloud Function integration (triggers on every classification)
+- ✅ Classify all messages for a user in one request
 

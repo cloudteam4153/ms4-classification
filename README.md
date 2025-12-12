@@ -21,6 +21,12 @@ Each classification includes a priority score (1-10) based on:
 - Action requirements (need to, must, please)
 - Time sensitivity (today, tomorrow, EOD)
 
+### ✨ Key Features
+- ✅ **User-based filtering**: Each user only sees their own classifications
+- ✅ **Bulk classification**: Classify all messages for a user in one request
+- ✅ **Event-driven**: Triggers Google Cloud Function for each classification
+- ✅ **No auth required**: JWT handled by integrations service (Sanjay/ms2)
+
 ---
 
 ## 🏗️ Architecture & Integration
@@ -83,30 +89,42 @@ See [CLOUD_FUNCTION_GUIDE.md](CLOUD_FUNCTION_GUIDE.md) for details.
 
 ### For Akhil (Composite Service)
 
-**Call classification endpoint:**
+**Get classifications for user:**
 ```python
 import requests
 
-# Get classifications for dashboard
+# Get classifications for specific user (dashboard)
 response = requests.get(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
-    params={"limit": 50}
+    params={
+        "user_id": "authenticated_user_id",
+        "limit": 50
+    }
 )
 classifications = response.json()
 
 # Match with messages using msg_id
 for classification in classifications:
     msg_id = classification["msg_id"]
+    user_id = classification["user_id"]
     # Fetch full message from Sanjay's service using msg_id
 ```
 
 **Trigger new classification:**
 ```python
-# User wants to classify new messages
+# Option A: Classify specific messages
 response = requests.post(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
-    headers={"Authorization": f"Bearer {jwt_token}"},
-    json={"message_ids": [msg_id1, msg_id2, msg_id3]}
+    json={
+        "message_ids": [msg_id1, msg_id2],
+        "user_id": "authenticated_user_id"
+    }
+)
+
+# Option B: Classify ALL messages for user
+response = requests.post(
+    "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
+    json={"user_id": "authenticated_user_id"}
 )
 ```
 
@@ -114,9 +132,10 @@ response = requests.post(
 
 **Monitor for new classifications:**
 ```python
-# Periodically check for new TODO classifications
+# Periodically check for new TODO classifications for a user
 response = requests.get(
     "https://ms4-classification-uq2tkhfvqa-uc.a.run.app/classifications",
+    params={"user_id": "user_id_here"},
     params={"label": "todo", "min_priority": 7}
 )
 
